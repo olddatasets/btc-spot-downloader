@@ -7,17 +7,39 @@ from datetime import datetime, timedelta
 import os
 import sys
 
-def fetch_btc_history(days=365):
+def fetch_btc_history(days="max"):
     """Fetch BTC price history from CoinGecko API."""
-    url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
-    params = {
-        "vs_currency": "usd",
-        "days": days,
-        "interval": "daily"
-    }
+    # Get API key from environment variable
+    api_key = os.environ.get('COINGECKO_API_KEY')
+
+    # Use range endpoint for full history
+    if days == "max" and api_key:
+        # Pro API endpoint
+        url = "https://pro-api.coingecko.com/api/v3/coins/bitcoin/market_chart/range"
+        # Bitcoin first had price data around 2013 on CoinGecko
+        from_timestamp = int(datetime(2013, 4, 28).timestamp())
+        to_timestamp = int(datetime.now().timestamp())
+
+        params = {
+            "vs_currency": "usd",
+            "from": from_timestamp,
+            "to": to_timestamp
+        }
+        headers = {'x-cg-pro-api-key': api_key}
+        print(f"Fetching entire BTC history from April 2013 to present...")
+    else:
+        # Use regular endpoint for specific days
+        url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
+        params = {
+            "vs_currency": "usd",
+            "days": days if days != "max" else 1825,  # ~5 years without API
+            "interval": "daily"
+        }
+        headers = {'x-cg-pro-api-key': api_key} if api_key else {}
+        print(f"Fetching {params['days']} days of BTC history")
 
     try:
-        response = requests.get(url, params=params, timeout=30)
+        response = requests.get(url, params=params, headers=headers, timeout=30)
         response.raise_for_status()
         data = response.json()
 
@@ -83,8 +105,8 @@ def update_index_html(latest_filename):
 
 def main():
     """Main execution function."""
-    print("Fetching BTC spot price history...")
-    df = fetch_btc_history(days=365)  # Get 1 year of data
+    print("Fetching entire BTC spot price history...")
+    df = fetch_btc_history(days="max")  # Get all available history
 
     print(f"Fetched {len(df)} days of data")
     print(f"Date range: {df['date'].min()} to {df['date'].max()}")
