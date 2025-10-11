@@ -7,38 +7,84 @@ from datetime import datetime, timedelta
 import os
 import sys
 
-def fetch_btc_history(days="max"):
-    """Fetch BTC price history from CoinGecko API."""
-    # Get API key from environment variable
-    api_key = os.environ.get('COINGECKO_API_KEY')
-
-    # Use range endpoint for full history
-    if days == "max" and api_key:
-        # Pro API endpoint
-        url = "https://pro-api.coingecko.com/api/v3/coins/bitcoin/market_chart/range"
-        # Bitcoin first had price data around 2013 on CoinGecko
-        from_timestamp = int(datetime(2013, 4, 28).timestamp())
-        to_timestamp = int(datetime.now().timestamp())
-
-        params = {
-            "vs_currency": "usd",
-            "from": from_timestamp,
-            "to": to_timestamp
-        }
-        headers = {'x-cg-pro-api-key': api_key}
-        print(f"Fetching entire BTC history from April 2013 to present...")
-    else:
-        # Use regular endpoint for specific days
-        url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
-        params = {
-            "vs_currency": "usd",
-            "days": days if days != "max" else 1825,  # ~5 years without API
-            "interval": "daily"
-        }
-        headers = {'x-cg-pro-api-key': api_key} if api_key else {}
-        print(f"Fetching {params['days']} days of BTC history")
+def load_existing_data():
+    """Load existing historical data from the website or local file."""
+    # Try to load from published website first
+    website_url = "https://dailysatprice.com/data/latest.csv"
+    local_path = "data/latest.csv"
 
     try:
+        print(f"Loading existing data from {website_url}...")
+        df = pd.read_csv(website_url)
+        df['date'] = pd.to_datetime(df['date']).dt.date
+        print(f"Loaded {len(df)} existing records from website")
+        return df
+    except Exception as e:
+        print(f"Could not load from website: {e}")
+
+        # Fall back to local file if it exists
+        if os.path.exists(local_path):
+            try:
+                print(f"Loading existing data from {local_path}...")
+                df = pd.read_csv(local_path)
+                df['date'] = pd.to_datetime(df['date']).dt.date
+                print(f"Loaded {len(df)} existing records from local file")
+                return df
+            except Exception as e:
+                print(f"Could not load from local file: {e}")
+
+        # Return empty DataFrame if nothing works
+        print("Starting with empty dataset")
+        return pd.DataFrame(columns=['date', 'price'])
+
+def fetch_current_btc_price():
+    """Fetch current BTC price from CoinGecko free API (no API key required)."""
+    url = "https://api.coingecko.com/api/v3/simple/price"
+    params = {
+        "ids": "bitcoin",
+        "vs_currencies": "usd"
+    }
+
+    try:
+        print("Fetching current BTC price from CoinGecko free API...")
+        response = requests.get(url, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        price = data['bitcoin']['usd']
+        today = datetime.now().date()
+
+        print(f"Current BTC price: ${price:,.2f}")
+        return pd.DataFrame([{'date': today, 'price': price}])
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching current price: {e}")
+        sys.exit(1)
+
+def fetch_btc_history_coingecko_pro():
+    """Fetch full BTC price history from CoinGecko Pro API (requires API key)."""
+    api_key = os.environ.get('COINGECKO_API_KEY')
+
+    if not api_key:
+        print("No COINGECKO_API_KEY found, cannot backfill history")
+        return None
+
+    # Pro API endpoint for full history
+    url = "https://pro-api.coingecko.com/api/v3/coins/bitcoin/market_chart/range"
+
+    # Bitcoin first had price data around 2013 on CoinGecko
+    from_timestamp = int(datetime(2013, 4, 28).timestamp())
+    to_timestamp = int(datetime.now().timestamp())
+
+    params = {
+        "vs_currency": "usd",
+        "from": from_timestamp,
+        "to": to_timestamp
+    }
+    headers = {'x-cg-pro-api-key': api_key}
+
+    try:
+        print(f"Fetching entire BTC history from April 2013 to present using CoinGecko Pro...")
         response = requests.get(url, params=params, headers=headers, timeout=30)
         response.raise_for_status()
         data = response.json()
@@ -54,11 +100,12 @@ def fetch_btc_history(days="max"):
         # Keep only date and price
         df = df[['date', 'price']]
 
+        print(f"Successfully fetched {len(df)} days of historical data")
         return df
 
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching data: {e}")
-        sys.exit(1)
+        print(f"Error fetching historical data from CoinGecko Pro: {e}")
+        return None
 
 def save_csv(df, output_dir='data'):
     """Save DataFrame to CSV with timestamp in filename."""
@@ -105,10 +152,38 @@ def update_index_html(latest_filename):
 
 def main():
     """Main execution function."""
-    print("Fetching entire BTC spot price history...")
-    df = fetch_btc_history(days="max")  # Get all available history
+    # Load existing historical data
+    df_existing = load_existing_data()
 
-    print(f"Fetched {len(df)} days of data")
+    # If no existing data, try to backfill from CoinGecko Pro
+    if df_existing.empty:
+        print("No existing data found, attempting to backfill from CoinGecko Pro...")
+        df_historical = fetch_btc_history_coingecko_pro()
+
+        if df_historical is not None:
+            # Use the full historical data
+            df_existing = df_historical
+            print(f"Successfully backfilled {len(df_existing)} days of historical data")
+        else:
+            print("Could not backfill historical data, starting fresh with today's price only")
+
+    # Fetch today's price
+    df_today = fetch_current_btc_price()
+    today = df_today['date'].iloc[0]
+
+    # Check if today's data already exists
+    if today in df_existing['date'].values:
+        print(f"Price for {today} already exists, updating...")
+        # Remove existing entry for today
+        df_existing = df_existing[df_existing['date'] != today]
+
+    # Append today's price
+    df = pd.concat([df_existing, df_today], ignore_index=True)
+
+    # Sort by date
+    df = df.sort_values('date').reset_index(drop=True)
+
+    print(f"Total records: {len(df)}")
     print(f"Date range: {df['date'].min()} to {df['date'].max()}")
 
     # Save to CSV
