@@ -11,8 +11,8 @@ This repository automatically fetches and stores Bitcoin spot price history dail
 
 ## Access the Data
 
-- **Latest data (always updated):** `https://[your-username].github.io/btc_spot_download/data/latest.csv`
-- **Specific date:** `https://[your-username].github.io/btc_spot_download/data/btc_spot_YYYYMMDD.csv`
+- **Latest data (always updated):** `https://dailysatprice.com/data/latest.csv`
+- **Specific date:** `https://dailysatprice.com/data/btc_spot_YYYYMMDD.csv`
 
 ## Setup Instructions
 
