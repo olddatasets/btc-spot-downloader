@@ -1,6 +1,9 @@
 name: Update BTC Spot Data
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # Run daily at 00:00 UTC
     - cron: '0 0 * * *'
