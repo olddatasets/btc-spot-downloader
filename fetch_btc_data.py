@@ -142,7 +142,7 @@ def update_index_html(latest_filename):
     <p>Redirecting to the latest data...</p>
     <p>If not redirected, <a href="data/latest.csv">click here for the latest data</a></p>
     <p>Latest file: <a href="data/{latest_filename}">{latest_filename}</a></p>
-    <p>Source code available on <a href="https://github.com/posix4e/btc-spot-downloader">GitHub</a></p>
+    <p>Source code available on <a href="https://github.com/olddatasets/btc-spot-downloader">GitHub</a></p>
 </body>
 </html>"""
 
