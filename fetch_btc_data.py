@@ -107,6 +107,41 @@ def fetch_btc_history_coingecko_pro():
         print(f"Error fetching historical data from CoinGecko Pro: {e}")
         return None
 
+def save_weekly_json(df, output_dir='data'):
+    """Save Monday-weekly aggregated JSON for strategyrainbow live fetch (no republish)."""
+    import json
+    # weekly bucket to Monday of ISO week, last row wins (same as strategyrainbow)
+    tmp = df.copy()
+    tmp['date'] = pd.to_datetime(tmp['date'])
+    # ISO week -> Monday
+    def monday_of(d):
+        # d is Timestamp
+        iso = d.isocalendar()
+        # find Monday of that ISO week
+        # use fromisocalendar (py3.8+)
+        try:
+            mon = datetime.fromisocalendar(iso.year, iso.week, 1).date()
+        except AttributeError:
+            # fallback: subtract weekday
+            mon = (d - pd.Timedelta(days=d.weekday())).date()
+        return mon
+    tmp['monday'] = tmp['date'].apply(monday_of)
+    # keep last per monday
+    tmp = tmp.sort_values('date')
+    weekly = tmp.groupby('monday', as_index=False).last()
+    weekly = weekly.sort_values('monday')
+    out = [{"date": str(r.monday), "price": float(r.price)} for _, r in weekly.iterrows()]
+    os.makedirs(output_dir, exist_ok=True)
+    # latest weekly JSON + versioned
+    latest_json = os.path.join(output_dir, 'weekly.json')
+    with open(latest_json, 'w') as f:
+        json.dump(out, f)
+    print(f"Weekly JSON saved to {latest_json} ({len(out)} weeks)")
+    # also save latest.json (same shape, convenient alias)
+    with open(os.path.join(output_dir, 'latest.json'), 'w') as f:
+        json.dump([{"date": str(r.date.date() if hasattr(r.date, 'date') else r.date), "price": float(r.price)} for _, r in df.sort_values('date').iterrows()], f)
+    return out
+
 def save_csv(df, output_dir='data'):
     """Save DataFrame to CSV with timestamp in filename."""
     os.makedirs(output_dir, exist_ok=True)
@@ -186,8 +221,9 @@ def main():
     print(f"Total records: {len(df)}")
     print(f"Date range: {df['date'].min()} to {df['date'].max()}")
 
-    # Save to CSV
+    # Save to CSV + weekly JSON (for strategyrainbow live fetch)
     filename = save_csv(df)
+    save_weekly_json(df)
 
     # Update index.html
     update_index_html(filename)
